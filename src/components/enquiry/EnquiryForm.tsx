@@ -216,7 +216,7 @@ export const EnquiryForm = () => {
           margin: 10,
           filename,
           image: { type: "jpeg", quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: 1100, logging: false },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         })
         .from(element)
@@ -690,7 +690,7 @@ export const EnquiryForm = () => {
               <SelectionsBreakdown state={state} />
 
               <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-noir p-6 text-white shadow-gold [&_.text-muted-foreground]:text-white/70 [&_.tabular-nums]:text-white">
-                <span aria-hidden="true" className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gradient-gold opacity-20 blur-3xl" />
+                <span aria-hidden="true" className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gradient-gold opacity-20 blur-3xl no-print" />
                 <Row label={t("summary.subtotal")} value={formatINR(totals.subtotal)} />
                 <div className="mt-1 flex items-center justify-between gap-3 py-1">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
