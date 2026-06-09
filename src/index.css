@@ -149,6 +149,22 @@ All colors MUST be HSL.
 
 body.printing .no-print { display: none !important; }
 
+/* html2canvas on Android often fails on CSS gradients — use flat colors while capturing */
+body.printing .bg-gradient-noir {
+  background-image: none !important;
+  background-color: hsl(220 25% 10%) !important;
+}
+body.printing .bg-gradient-gold {
+  background-image: none !important;
+  background-color: hsl(43 65% 52%) !important;
+}
+body.printing .text-gradient-gold {
+  background-image: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  color: hsl(43 65% 45%) !important;
+}
+
 .print-only { display: none; }
 @media print { .print-only { display: block !important; } }
 body.printing .print-only { display: block !important; }

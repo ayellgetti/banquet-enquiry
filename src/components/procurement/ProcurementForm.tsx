@@ -3,9 +3,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { SectionCard } from "@/components/enquiry/SectionCard";
-import { itemsByCategory, PROCUREMENT_CATEGORIES, PROCUREMENT_ITEMS } from "@/data/procurementOptions";
+import { itemsByCategory, PROCUREMENT_CATEGORIES, PROCUREMENT_ITEMS, type ProcurementItem } from "@/data/procurementOptions";
 import { initialProcurement, type ProcurementState } from "@/types/procurement";
+import { downloadPdfFromElement } from "@/lib/downloadPdf";
 import { ArrowLeft, ArrowRight, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { useT } from "@/i18n";
@@ -18,11 +27,201 @@ const procurementAccordionItemClass =
 const procurementAccordionTriggerClass =
   "bg-muted/40 px-4 py-3 text-sm font-semibold uppercase tracking-wide hover:no-underline data-[state=open]:border-b data-[state=open]:border-border";
 
+const procurementTableClass =
+  "border-collapse text-sm [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border [&_th]:bg-muted/40";
+
+type ColumnLabels = {
+  item: string;
+  unit: string;
+  qty: string;
+  rate: string;
+  total: string;
+};
+
+const VendorBlankCell = () => (
+  <TableCell className="min-w-[5rem] bg-muted/15 px-2 py-2 text-right align-middle">
+    <span aria-hidden="true" className="inline-block min-h-[1.25rem] w-full">&nbsp;</span>
+  </TableCell>
+);
+
+const VendorBlankField = ({ label }: { label: string }) => (
+  <div>
+    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {label}
+    </span>
+    <div
+      aria-hidden="true"
+      className="flex h-9 items-center rounded-md border border-border bg-muted/15 px-2"
+    >
+      <span className="inline-block min-h-[1rem] w-full">&nbsp;</span>
+    </div>
+  </div>
+);
+
+const ProcurementTableHead = ({ labels }: { labels: ColumnLabels }) => (
+  <TableHeader>
+    <TableRow className="hover:bg-transparent">
+      <TableHead className="font-semibold">{labels.item}</TableHead>
+      <TableHead className="w-20 font-semibold">{labels.unit}</TableHead>
+      <TableHead className="w-24 text-right font-semibold">{labels.qty}</TableHead>
+      <TableHead className="w-28 text-right font-semibold">{labels.rate}</TableHead>
+      <TableHead className="w-28 text-right font-semibold">{labels.total}</TableHead>
+    </TableRow>
+  </TableHeader>
+);
+
+const ProcurementMaterialsTable = ({
+  items,
+  quantities,
+  setQty,
+  labels,
+}: {
+  items: ProcurementItem[];
+  quantities: Record<string, number>;
+  setQty: (id: string, qty: number) => void;
+  labels: ColumnLabels;
+}) => (
+  <>
+    <div className="divide-y border-t md:hidden print:hidden">
+      {items.map((item) => (
+        <div key={item.id} className="px-3 py-3">
+          <p className="text-sm font-medium leading-snug">{item.name}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {labels.unit}: {item.unit}
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div>
+              <label
+                htmlFor={`qty-${item.id}`}
+                className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                {labels.qty}
+              </label>
+              <Input
+                id={`qty-${item.id}`}
+                type="number"
+                min={0}
+                max={9999}
+                inputMode="numeric"
+                value={quantities[item.id] ?? ""}
+                onChange={(e) => setQty(item.id, Number(e.target.value) || 0)}
+                className="h-9 w-full text-right tabular-nums"
+                placeholder="0"
+              />
+            </div>
+            <VendorBlankField label={labels.rate} />
+            <VendorBlankField label={labels.total} />
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div className="hidden overflow-x-auto md:block print:block">
+      <Table className={`${procurementTableClass} min-w-[36rem]`}>
+        <ProcurementTableHead labels={labels} />
+        <TableBody>
+          {items.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell className="min-w-[10rem] font-medium">{item.name}</TableCell>
+              <TableCell className="w-20 text-muted-foreground">{item.unit}</TableCell>
+              <TableCell className="w-24 p-1 text-right">
+                <Input
+                  type="number"
+                  min={0}
+                  max={9999}
+                  inputMode="numeric"
+                  aria-label={`${item.name} ${labels.qty}`}
+                  value={quantities[item.id] ?? ""}
+                  onChange={(e) => setQty(item.id, Number(e.target.value) || 0)}
+                  className="ml-auto h-9 w-full max-w-[6rem] text-right tabular-nums"
+                  placeholder="0"
+                />
+              </TableCell>
+              <VendorBlankCell />
+              <VendorBlankCell />
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  </>
+);
+
+const ProcurementSummaryTable = ({
+  rows,
+  labels,
+}: {
+  rows: { item: ProcurementItem; qty: number }[];
+  labels: ColumnLabels;
+}) => (
+  <>
+    <div className="divide-y border-t md:hidden print:hidden">
+      {rows.map(({ item, qty }) => (
+        <div key={item.id} className="px-1 py-3">
+          <p className="text-sm font-medium leading-snug">{item.name}</p>
+          <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+            <div>
+              <span className="block text-[10px] font-semibold uppercase text-muted-foreground">
+                {labels.unit}
+              </span>
+              <span className="mt-1 block font-medium">{item.unit}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] font-semibold uppercase text-muted-foreground">
+                {labels.qty}
+              </span>
+              <span className="mt-1 block font-medium tabular-nums">{qty}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] font-semibold uppercase text-muted-foreground">
+                {labels.rate}
+              </span>
+              <span className="mt-1 block min-h-[1rem] rounded border border-border bg-muted/15">&nbsp;</span>
+            </div>
+            <div>
+              <span className="block text-[10px] font-semibold uppercase text-muted-foreground">
+                {labels.total}
+              </span>
+              <span className="mt-1 block min-h-[1rem] rounded border border-border bg-muted/15">&nbsp;</span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div className="hidden overflow-x-auto md:block print:block">
+      <Table className={`${procurementTableClass} min-w-[36rem]`}>
+        <ProcurementTableHead labels={labels} />
+        <TableBody>
+          {rows.map(({ item, qty }) => (
+            <TableRow key={item.id}>
+              <TableCell className="min-w-[10rem] font-medium">{item.name}</TableCell>
+              <TableCell className="w-20 text-muted-foreground">{item.unit}</TableCell>
+              <TableCell className="w-24 text-right tabular-nums">{qty}</TableCell>
+              <VendorBlankCell />
+              <VendorBlankCell />
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  </>
+);
+
 export const ProcurementForm = () => {
   const { t } = useT();
   const [tab, setTab] = useState<TabKey>("materials");
   const [state, setState] = useState<ProcurementState>(initialProcurement);
   const [attempted, setAttempted] = useState<Set<TabKey>>(new Set());
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+
+  const columnLabels: ColumnLabels = {
+    item: t("procurement.item"),
+    unit: t("procurement.unit"),
+    qty: t("procurement.qty"),
+    rate: t("procurement.rate"),
+    total: t("procurement.total"),
+  };
 
   const idx = TAB_ORDER.indexOf(tab);
 
@@ -86,23 +285,19 @@ export const ProcurementForm = () => {
     const pad = (n: number) => String(n).padStart(2, "0");
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const filename = `Procurement_${timestamp}.pdf`;
+    setIsPdfGenerating(true);
+    const loadingToast = toast.loading(t("toast.pdfGenerating"));
     try {
-      document.body.classList.add("printing");
-      const { default: html2pdf } = await import("html2pdf.js");
-      await html2pdf()
-        .set({
-          margin: 10,
-          filename,
-          image: { type: "jpeg", quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        })
-        .from(element)
-        .save();
+      const result = await downloadPdfFromElement(element, filename);
+      toast.dismiss(loadingToast);
+      if (result === "view") {
+        toast.info(t("toast.pdfOpenedMobile"), { duration: 8000 });
+      }
     } catch {
+      toast.dismiss(loadingToast);
       toast.error(t("toast.pdfFailed"));
     } finally {
-      document.body.classList.remove("printing");
+      setIsPdfGenerating(false);
     }
   };
 
@@ -115,6 +310,29 @@ export const ProcurementForm = () => {
       .filter(Boolean) as { item: typeof PROCUREMENT_ITEMS[number]; qty: number }[];
     return { cat, catItems };
   }).filter((g) => g.catItems.length > 0);
+
+  const renderCategoryItems = (items: ProcurementItem[]) => (
+    <ProcurementMaterialsTable
+      items={items}
+      quantities={state.quantities}
+      setQty={setQty}
+      labels={columnLabels}
+    />
+  );
+
+  const renderSummaryTables = (className?: string) => (
+    <div className={className}>
+      {summaryByCategory.map(({ cat, catItems }) => (
+        <div key={cat} className="mb-6 last:mb-0">
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide">{cat}</h3>
+          <div className="overflow-x-auto">
+            <ProcurementSummaryTable rows={catItems} labels={columnLabels} />
+          </div>
+        </div>
+      ))}
+      <p className="mt-4 text-xs text-muted-foreground italic">{t("procurement.vendorFill")}</p>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -139,6 +357,7 @@ export const ProcurementForm = () => {
             {attempted.has("materials") && selectedItems.length === 0 && (
               <p className="mb-4 text-sm text-destructive">{t("procurement.validate.materials")}</p>
             )}
+            <p className="mb-4 text-xs text-muted-foreground">{t("procurement.vendorFill")}</p>
             <Accordion type="single" collapsible className="w-full">
               {PROCUREMENT_CATEGORIES.map((cat) => {
                 const items = itemsByCategory[cat] ?? [];
@@ -157,31 +376,7 @@ export const ProcurementForm = () => {
                       </span>
                     </AccordionTrigger>
                     <AccordionContent className="bg-white px-0 pb-0 pt-0">
-                      <ul className="divide-y">
-                        {items.map((item) => (
-                          <li
-                            key={item.id}
-                            className="flex items-center gap-3 px-4 py-3 sm:grid sm:grid-cols-[1fr_5rem_6.5rem] sm:items-center sm:gap-4"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium leading-snug">{item.name}</p>
-                              <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">{item.unit}</p>
-                            </div>
-                            <span className="hidden text-sm text-muted-foreground sm:block">{item.unit}</span>
-                            <Input
-                              type="number"
-                              min={0}
-                              max={9999}
-                              inputMode="numeric"
-                              aria-label={`${item.name} ${t("procurement.qty")}`}
-                              value={state.quantities[item.id] ?? ""}
-                              onChange={(e) => setQty(item.id, Number(e.target.value) || 0)}
-                              className="h-9 w-full shrink-0 text-right tabular-nums sm:w-full"
-                              placeholder="0"
-                            />
-                          </li>
-                        ))}
-                      </ul>
+                      {renderCategoryItems(items)}
                     </AccordionContent>
                   </AccordionItem>
                 );
@@ -209,37 +404,17 @@ export const ProcurementForm = () => {
                           <AccordionTrigger className={procurementAccordionTriggerClass}>
                             <span className="flex-1 text-left">{cat}</span>
                           </AccordionTrigger>
-                          <AccordionContent className="bg-white px-0 pb-0 pt-0">
-                            <ul className="divide-y px-4">
-                              {catItems.map(({ item, qty }) => (
-                                <li key={item.id} className="flex items-center justify-between gap-4 py-3 text-sm">
-                                  <span className="min-w-0 font-medium">{item.name}</span>
-                                  <span className="shrink-0 tabular-nums text-muted-foreground">
-                                    {qty} {item.unit}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
+                          <AccordionContent className="bg-white px-2 pb-4 pt-0">
+                            <ProcurementSummaryTable rows={catItems} labels={columnLabels} />
                           </AccordionContent>
                         </AccordionItem>
                       ))}
                     </Accordion>
+                    <p className="mt-4 text-xs text-muted-foreground italic">{t("procurement.vendorFill")}</p>
                   </div>
-                  <div className="print-only space-y-4">
-                    <h2 className="font-display text-lg font-semibold">{t("procurement.materials.title")}</h2>
-                    {summaryByCategory.map(({ cat, catItems }) => (
-                      <div key={cat}>
-                        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide">{cat}</h3>
-                        <ul className="space-y-1 text-sm">
-                          {catItems.map(({ item, qty }) => (
-                            <li key={item.id} className="flex justify-between gap-4 border-b border-border/50 py-1">
-                              <span>{item.name}</span>
-                              <span className="tabular-nums">{qty} {item.unit}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                  <div className="print-only">
+                    <h2 className="mb-4 font-display text-lg font-semibold">{t("procurement.materials.title")}</h2>
+                    {renderSummaryTables()}
                   </div>
                 </>
               )}
@@ -264,9 +439,10 @@ export const ProcurementForm = () => {
           ) : (
             <Button
               onClick={() => void handleDownloadPdf()}
+              disabled={isPdfGenerating}
               className="bg-gradient-gold text-primary-foreground shadow-gold hover:opacity-95"
             >
-              <Printer className="mr-1 h-4 w-4" /> {t("common.downloadPdf")}
+              <Printer className="mr-1 h-4 w-4" /> {isPdfGenerating ? t("toast.pdfGenerating") : t("common.downloadPdf")}
             </Button>
           )}
         </div>

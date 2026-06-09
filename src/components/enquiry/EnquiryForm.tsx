@@ -17,6 +17,7 @@ import {
 import { initialEnquiry, type EnquiryState } from "@/types/enquiry";
 import { calcTotals, formatINR } from "@/lib/enquiryTotals";
 import { buildEnquiryLeadPayload, submitEnquiryLead } from "@/lib/enquiryApi";
+import { downloadPdfFromElement } from "@/lib/downloadPdf";
 import { ArrowLeft, ArrowRight, Printer, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useT } from "@/i18n";
@@ -77,6 +78,7 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
   const [touched, setTouched] = useState<{ customerName?: boolean; phone?: boolean }>({});
   const [attempted, setAttempted] = useState<Set<TabKey>>(new Set());
   const [isSubmittingLead, setIsSubmittingLead] = useState(false);
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const totals = calcTotals(state);
 
   const update = <K extends keyof EnquiryState>(key: K, value: EnquiryState[K]) =>
@@ -248,23 +250,19 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const prefix = isMenuSelection ? "MenuSelection" : "Enquiry";
     const filename = [prefix, safeName, safeEvent, timestamp].filter(Boolean).join("_") + ".pdf";
+    setIsPdfGenerating(true);
+    const loadingToast = toast.loading(t("toast.pdfGenerating"));
     try {
-      document.body.classList.add("printing");
-      const { default: html2pdf } = await import("html2pdf.js");
-      await html2pdf()
-        .set({
-          margin: 10,
-          filename,
-          image: { type: "jpeg", quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        })
-        .from(element)
-        .save();
-    } catch (e) {
+      const result = await downloadPdfFromElement(element, filename);
+      toast.dismiss(loadingToast);
+      if (result === "view") {
+        toast.info(t("toast.pdfOpenedMobile"), { duration: 8000 });
+      }
+    } catch {
+      toast.dismiss(loadingToast);
       toast.error(t("toast.pdfFailed"));
     } finally {
-      document.body.classList.remove("printing");
+      setIsPdfGenerating(false);
     }
   };
 
@@ -865,8 +863,8 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
             <ArrowLeft className="mr-1 h-4 w-4" /> {t("common.back")}
           </Button>
           {tab === "summary" ? (
-            <Button onClick={handleDownloadPdf} className="bg-gradient-gold text-primary-foreground shadow-gold hover:opacity-95">
-              <Printer className="mr-1 h-4 w-4" /> {t("common.downloadPdf")}
+            <Button onClick={handleDownloadPdf} disabled={isPdfGenerating} className="bg-gradient-gold text-primary-foreground shadow-gold hover:opacity-95">
+              <Printer className="mr-1 h-4 w-4" /> {isPdfGenerating ? t("toast.pdfGenerating") : t("common.downloadPdf")}
             </Button>
           ) : (
             <Button onClick={goNext} disabled={isSubmittingLead} className="bg-gradient-gold text-primary-foreground shadow-gold hover:opacity-95">
