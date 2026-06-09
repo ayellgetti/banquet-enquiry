@@ -21,10 +21,16 @@ import { ArrowLeft, ArrowRight, Printer, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useT } from "@/i18n";
 
-const TAB_ORDER = [
+const ENQUIRY_TABS = [
   "basics", "venue", "package", "menu", "stage", "extras", "summary",
 ] as const;
-type TabKey = typeof TAB_ORDER[number];
+const MENU_SELECTION_TABS = ["menu", "summary"] as const;
+
+export type EnquiryFormVariant = "enquiry" | "menu-selection";
+
+type EnquiryTabKey = typeof ENQUIRY_TABS[number];
+type MenuSelectionTabKey = typeof MENU_SELECTION_TABS[number];
+type TabKey = EnquiryTabKey | MenuSelectionTabKey;
 
 const TAB_KEYS: Record<TabKey, string> = {
   basics: "tab.basics",
@@ -57,10 +63,17 @@ const validatePhone = (raw: string, t: (k: string) => string): string | null => 
   return null;
 };
 
-export const EnquiryForm = () => {
+export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVariant }) => {
   const { t } = useT();
-  const [tab, setTab] = useState<TabKey>("basics");
-  const [state, setState] = useState<EnquiryState>(initialEnquiry);
+  const TAB_ORDER = (variant === "menu-selection" ? MENU_SELECTION_TABS : ENQUIRY_TABS) as readonly TabKey[];
+  const isMenuSelection = variant === "menu-selection";
+  const [tab, setTab] = useState<TabKey>(isMenuSelection ? "menu" : "basics");
+  const [state, setState] = useState<EnquiryState>(() => ({
+    ...initialEnquiry,
+    ...(isMenuSelection
+      ? { packageId: "", venueId: "", stageId: "", chairId: "", decorIds: [], extraIds: [] }
+      : {}),
+  }));
   const [touched, setTouched] = useState<{ customerName?: boolean; phone?: boolean }>({});
   const [attempted, setAttempted] = useState<Set<TabKey>>(new Set());
   const [isSubmittingLead, setIsSubmittingLead] = useState(false);
@@ -87,7 +100,7 @@ export const EnquiryForm = () => {
   const err = {
     name:      (touched.customerName || showBasics) ? nameError : null,
     phone:     (touched.phone || showBasics)        ? phoneError : null,
-    eventType: showBasics && !b.eventType  ? t("validate.eventTypeRequired") : null,
+    eventType: !isMenuSelection && showBasics && !b.eventType  ? t("validate.eventTypeRequired") : null,
     eventDate: showBasics
       ? (!b.eventDate
           ? t("validate.eventDateRequired")
@@ -96,7 +109,7 @@ export const EnquiryForm = () => {
             : null)
       : null,
     guests:    showBasics && !b.guestCount ? t("validate.guestsRequired")    : null,
-    source:    showBasics && !b.source     ? t("validate.sourceRequired")    : null,
+    source:    !isMenuSelection && showBasics && !b.source     ? t("validate.sourceRequired")    : null,
   };
   const invalidVenue   = attempted.has("venue")   && !state.venueId;
   const invalidPackage = attempted.has("package") && !state.packageId;
@@ -119,11 +132,11 @@ export const EnquiryForm = () => {
         const b = state.basics;
         if (nameError) errs.push(nameError);
         if (phoneError) errs.push(phoneError);
-        if (!b.eventType)  errs.push(t("validate.eventTypeRequired"));
+        if (!isMenuSelection && !b.eventType)  errs.push(t("validate.eventTypeRequired"));
         if (!b.eventDate)  errs.push(t("validate.eventDateRequired"));
         else if (isPastOrToday(b.eventDate)) errs.push(t("validate.eventDateFuture"));
         if (!b.guestCount) errs.push(t("validate.guestsRequired"));
-        if (!b.source)     errs.push(t("validate.sourceRequired"));
+        if (!isMenuSelection && !b.source)     errs.push(t("validate.sourceRequired"));
         break;
       }
       case "venue":   if (!state.venueId)   errs.push(t("toast.needVenue"));   break;
@@ -133,7 +146,7 @@ export const EnquiryForm = () => {
           errs.push(t("toast.needPlatePackage"));
           break;
         }
-        if (state.selectMenuLater) break;
+        if (state.selectMenuLater && !isMenuSelection) break;
         if (state.menuItemIds.length === 0) errs.push(t("toast.needPlate"));
         const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
         const limits = (plate?.limits ?? {}) as Record<string, number>;
@@ -189,7 +202,7 @@ export const EnquiryForm = () => {
 
     const menuIdx = TAB_ORDER.indexOf("menu");
     const leavingMenuForward = idx === menuIdx && nextIdx > menuIdx;
-    if (leavingMenuForward && !state.leadApiResponse) {
+    if (leavingMenuForward && !isMenuSelection && !state.leadApiResponse) {
       setIsSubmittingLead(true);
       try {
         const response = await submitEnquiryLead(buildEnquiryLeadPayload(state));
@@ -218,19 +231,23 @@ export const EnquiryForm = () => {
   }, {});
 
   const handleDownloadPdf = async () => {
-    if (!state.basics.customerName) {
+    if (!isMenuSelection && !state.basics.customerName) {
       toast.error(t("toast.needCustomer"));
       return;
     }
     const element = document.getElementById("print-area");
     if (!element) return;
     const sanitize = (s: string) => s.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");
-    const safeName = sanitize(state.basics.customerName);
-    const safeEvent = sanitize(state.basics.eventType || "");
+    const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
+    const safeName = sanitize(
+      isMenuSelection ? plate?.name || "MenuSelection" : state.basics.customerName,
+    );
+    const safeEvent = sanitize(isMenuSelection ? "" : state.basics.eventType || "");
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const filename = ["Enquiry", safeName, safeEvent, timestamp].filter(Boolean).join("_") + ".pdf";
+    const prefix = isMenuSelection ? "MenuSelection" : "Enquiry";
+    const filename = [prefix, safeName, safeEvent, timestamp].filter(Boolean).join("_") + ".pdf";
     try {
       document.body.classList.add("printing");
       const { default: html2pdf } = await import("html2pdf.js");
@@ -272,6 +289,7 @@ export const EnquiryForm = () => {
         </div>
 
         {/* PACKAGE */}
+        {!isMenuSelection && (
         <TabsContent value="package" className="mt-6">
           <SectionCard title={t("package.title")} description={t("package.desc")} required>
             {invalidPackage && (
@@ -303,10 +321,16 @@ export const EnquiryForm = () => {
             </div>
           </SectionCard>
         </TabsContent>
+        )}
 
         {/* BASIC DETAILS */}
+        {!isMenuSelection && (
         <TabsContent value="basics" className="mt-6">
-          <SectionCard title={t("basics.title")} description={t("basics.desc")} required>
+          <SectionCard
+            title={t("basics.title")}
+            description={isMenuSelection ? t("menuSelection.basicsDesc") : t("basics.desc")}
+            required
+          >
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t("basics.customerName")}<Req /></Label>
@@ -334,6 +358,7 @@ export const EnquiryForm = () => {
                 />
                 {err.phone && <p className="text-xs text-destructive">{err.phone}</p>}
               </div>
+              {!isMenuSelection && (
               <div className="space-y-2">
                 <Label>{t("basics.eventType")}<Req /></Label>
                 <Select value={state.basics.eventType} onValueChange={(v) => updateBasic("eventType", v)}>
@@ -344,6 +369,7 @@ export const EnquiryForm = () => {
                 </Select>
                 {err.eventType && <p className="text-xs text-destructive">{err.eventType}</p>}
               </div>
+              )}
               <div className="space-y-2">
                 <Label>{t("basics.eventDate")}<Req /></Label>
                 <Input
@@ -369,6 +395,7 @@ export const EnquiryForm = () => {
                 />
                 {err.guests && <p className="text-xs text-destructive">{err.guests}</p>}
               </div>
+              {!isMenuSelection && (
               <div className="space-y-2">
                 <Label>{t("basics.source")}<Req /></Label>
                 <Select value={state.basics.source} onValueChange={(v) => updateBasic("source", v)}>
@@ -379,11 +406,14 @@ export const EnquiryForm = () => {
                 </Select>
                 {err.source && <p className="text-xs text-destructive">{err.source}</p>}
               </div>
+              )}
             </div>
           </SectionCard>
         </TabsContent>
+        )}
 
         {/* VENUE */}
+        {!isMenuSelection && (
         <TabsContent value="venue" className="mt-6">
           <SectionCard title={t("venue.title")} description={t("venue.desc")} required>
             {invalidVenue && (
@@ -402,10 +432,12 @@ export const EnquiryForm = () => {
             </div>
           </SectionCard>
         </TabsContent>
+        )}
 
         {/* MENU */}
         <TabsContent value="menu" className="mt-6">
           <SectionCard title={t("menu.title")} description={t("menu.desc")} required>
+            {!isMenuSelection && (
             <div className="mb-6 flex items-start gap-3 rounded-lg border bg-muted/40 p-4">
               <Checkbox
                 id="select-menu-later"
@@ -426,6 +458,7 @@ export const EnquiryForm = () => {
                 <p className="text-sm text-muted-foreground">{t("menu.selectLaterDesc")}</p>
               </div>
             </div>
+            )}
 
             {menuPlateMissing && (
               <p className="mb-3 text-sm text-destructive">{t("toast.needPlatePackage")}</p>
@@ -495,17 +528,18 @@ export const EnquiryForm = () => {
               {COMMON_PLATE_ITEMS.join(" · ")}
             </div>
 
-            {state.selectMenuLater && state.platePackageId && (
+            {!isMenuSelection && state.selectMenuLater && state.platePackageId && (
               <p className="mb-4 text-sm text-muted-foreground italic">{t("menu.selectLaterHint")}</p>
             )}
 
-            {!state.selectMenuLater && (
+            {(!state.selectMenuLater || isMenuSelection) && (
               !state.platePackageId ? (
               <p className="text-sm text-muted-foreground">{t("menu.selectPlate")}</p>
             ) : (
             <Accordion
-              type="multiple"
-              defaultValue={[]}
+              {...(isMenuSelection
+                ? { type: "single" as const, collapsible: true }
+                : { type: "multiple" as const, defaultValue: [] })}
               className="w-full"
             >
               {Object.entries(menuByCategory).map(([cat, items]) => {
@@ -587,8 +621,9 @@ export const EnquiryForm = () => {
                         }
                         return (
                           <Accordion
-                            type="multiple"
-                            defaultValue={[]}
+                            {...(isMenuSelection
+                              ? { type: "single" as const, collapsible: true }
+                              : { type: "multiple" as const, defaultValue: [] })}
                             className="w-full pt-3"
                           >
                             {Object.entries(groups).map(([sub, subItems]) => {
@@ -632,6 +667,8 @@ export const EnquiryForm = () => {
 
         {/* DECOR */}
         {/* STAGE */}
+        {!isMenuSelection && (
+        <>
         <TabsContent value="stage" className="mt-6">
           <SectionCard title={t("stage.title")} description={t("stage.desc")} required>
             {invalidStage && (
@@ -722,11 +759,14 @@ export const EnquiryForm = () => {
             </Accordion>
           </SectionCard>
         </TabsContent>
+        </>
+        )}
 
         {/* SUMMARY */}
         <TabsContent value="summary" className="mt-6">
           <SectionCard title={t("summary.title")} description={t("summary.desc")}>
             <div id="print-area" className="space-y-6">
+              {!isMenuSelection && (
               <div className="grid gap-4 rounded-lg bg-muted/40 p-4 sm:grid-cols-2">
                 <SummaryField label={t("summary.customer")} value={state.basics.customerName || "—"} />
                 <SummaryField label={t("summary.phone")} value={state.basics.phone || "—"} />
@@ -736,9 +776,11 @@ export const EnquiryForm = () => {
                 <SummaryField label={t("summary.guests")} value={String(state.basics.guestCount || 0)} />
                 <SummaryField label={t("summary.source")} value={state.basics.source || "—"} />
               </div>
+              )}
 
-              <SelectionsBreakdown state={state} />
+              <SelectionsBreakdown state={state} menuOnly={isMenuSelection} />
 
+              {!isMenuSelection && (
               <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-noir p-6 text-white shadow-gold [&_.text-muted-foreground]:text-white/70 [&_.tabular-nums]:text-white">
                 <span aria-hidden="true" className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gradient-gold opacity-20 blur-3xl" />
                 <Row label={t("summary.subtotal")} value={formatINR(totals.subtotal)} />
@@ -785,7 +827,9 @@ export const EnquiryForm = () => {
                   </span>
                 </div>
               </div>
+              )}
 
+              {!isMenuSelection && (
               <div className="space-y-2">
                 <Label className={!state.notes ? "no-print" : ""}>{t("summary.notes")}</Label>
                 <div className="no-print">
@@ -802,6 +846,7 @@ export const EnquiryForm = () => {
                   />
                 )}
               </div>
+              )}
             </div>
           </SectionCard>
         </TabsContent>
@@ -831,7 +876,7 @@ export const EnquiryForm = () => {
         </div>
       </div>
 
-      {idx === 0 && !state.packageId && (
+      {idx === 0 && !isMenuSelection && !state.packageId && (
         <div className="no-print flex items-start gap-2 rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           {t("common.tipPackage")}
@@ -876,7 +921,7 @@ const Row = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
+const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState; menuOnly?: boolean }) => {
   const { t } = useT();
   const pkg = PACKAGES.find((p) => p.id === state.packageId);
   const venue = VENUE_OPTIONS.find((v) => v.id === state.venueId);
@@ -895,7 +940,7 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
 
   const sections: { title: string; body: React.ReactNode; key: string }[] = [];
 
-  if (venue) {
+  if (!menuOnly && venue) {
     sections.push({
       key: "venue",
       title: t("section.venue"),
@@ -907,7 +952,7 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
     });
   }
 
-  if (pkg) {
+  if (!menuOnly && pkg) {
     const slot = pkg.slots?.[0];
     sections.push({
       key: "package",
@@ -947,7 +992,7 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
               <span className="text-muted-foreground"> · ₹{plate.basePrice}/plate base</span>
             )}
           </div>
-          {state.selectMenuLater ? (
+          {state.selectMenuLater && !menuOnly ? (
             <p className="text-xs italic text-muted-foreground">{t("menu.selectedLaterSummary")}</p>
           ) : Object.keys(menuByCat).length === 0 ? (
             <p className="text-xs text-muted-foreground">{t("summary.noDishes")}</p>
@@ -957,13 +1002,23 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
                 const limit = (plate.limits as Record<string, number>)[cat] ?? 0;
                 const sorted = [...items].sort((a, b) => a.price - b.price);
                 const includedIds = new Set(sorted.slice(0, limit).map((m) => m.id));
+                const extraCount = items.filter((m) => limit > 0 && !includedIds.has(m.id)).length
+                  + (limit === 0 ? items.length : 0);
                 return (
-                  <div key={cat} className="rounded-md border bg-muted/30 p-2">
-                    <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <div
+                    key={cat}
+                    className={`rounded-md border p-2 ${extraCount > 0 ? "border-amber-300 bg-amber-50/50" : "bg-muted/30"}`}
+                  >
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {cat}
                       {limit > 0 && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
                           {Math.min(items.length, limit)}/{limit} {t("menu.included")}
+                        </span>
+                      )}
+                      {extraCount > 0 && (
+                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                          +{extraCount} {t("menu.extra")}
                         </span>
                       )}
                     </div>
@@ -971,11 +1026,24 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
                       {items.map((m) => {
                         const isExtra = limit > 0 && !includedIds.has(m.id);
                         const isCustom = limit === 0;
+                        const beyondPackage = isExtra || isCustom;
                         return (
-                          <li key={m.id} className="flex items-center justify-between text-xs">
-                            <span>{m.name}</span>
-                            <span className={isExtra || isCustom ? "font-medium text-amber-700" : "text-muted-foreground"}>
-                              {isExtra || isCustom ? `+₹${m.price}/plate` : t("menu.included")}
+                          <li
+                            key={m.id}
+                            className={`flex items-center justify-between gap-2 rounded px-1 py-0.5 text-xs ${
+                              beyondPackage ? "bg-amber-100/80 font-medium text-amber-950" : ""
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              {m.name}
+                              {beyondPackage && (
+                                <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
+                                  {t("menu.extra")}
+                                </span>
+                              )}
+                            </span>
+                            <span className={beyondPackage ? "font-semibold text-amber-800 tabular-nums" : "text-muted-foreground"}>
+                              {beyondPackage ? `+₹${m.price}/plate` : t("menu.included")}
                             </span>
                           </li>
                         );
@@ -991,7 +1059,7 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
     });
   }
 
-  if (decors.length > 0) {
+  if (!menuOnly && decors.length > 0) {
     sections.push({
       key: "decor",
       title: t("section.decoration"),
@@ -1008,7 +1076,7 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
     });
   }
 
-  if (stage) {
+  if (!menuOnly && stage) {
     sections.push({
       key: "stage",
       title: t("section.stage"),
@@ -1021,7 +1089,7 @@ const SelectionsBreakdown = ({ state }: { state: EnquiryState }) => {
     });
   }
 
-  if (extras.length > 0) {
+  if (!menuOnly && extras.length > 0) {
     sections.push({
       key: "extras",
       title: t("section.extras"),

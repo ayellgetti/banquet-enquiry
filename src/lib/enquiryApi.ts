@@ -82,7 +82,7 @@ function buildAdditionDetail(state: EnquiryState): string {
   const pkg = PACKAGES.find((p) => p.id === state.packageId);
   const venue = VENUE_OPTIONS.find((v) => v.id === state.venueId);
 
-  const sections: string[] = [];
+  const sections: string[] = ["Module: Enquiry"];
 
   if (state.basics.source) sections.push(`Source: ${state.basics.source}`);
   if (venue) sections.push(`Venue: ${venue.name}${venue.description ? ` — ${venue.description}` : ""}`);

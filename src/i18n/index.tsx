@@ -11,9 +11,52 @@ export const LANGUAGES: { code: Lang; label: string; native: string }[] = [
 type Dict = Record<string, string>;
 
 const en: Dict = {
-  "app.title": "New Event Enquiry",
-  "app.subtitle": "Build a complete quote across packages, menu, decor and more.",
+  "app.title": "Banquet Manager",
+  "app.subtitle": "Enquiry, menu selection, and procurement in one place.",
   "lang.label": "Language",
+
+  "home.title": "Banquet Manager",
+  "home.subtitle": "Choose a workflow to get started",
+  "home.choose": "What would you like to do today?",
+  "home.open": "Open",
+  "home.back": "Back to home",
+
+  "module.enquiry.title": "Event Enquiry",
+  "module.enquiry.subtitle": "Build a complete quote across packages, menu, decor and more.",
+  "module.enquiry.desc": "Full event enquiry with venue, package, menu, stage, extras and PDF quote.",
+
+  "module.menu.title": "Menu Selection",
+  "module.menu.subtitle": "Finalize plate package and dishes for an existing booking.",
+  "module.menu.desc": "Pick a plate package and menu items — or defer dish selection to later.",
+
+  "module.procurement.title": "Raw Material Procurement",
+  "module.procurement.subtitle": "Request catering ingredients and supplies.",
+  "module.procurement.desc": "Submit raw material requirements for kitchen and catering operations.",
+
+  "menuSelection.basicsDesc": "Customer details for this menu selection.",
+
+  "procurement.tab.details": "Request Details",
+  "procurement.tab.materials": "Materials",
+  "procurement.tab.summary": "Summary",
+  "procurement.details.title": "Procurement Request",
+  "procurement.details.desc": "Who is requesting materials and when are they needed?",
+  "procurement.requestedBy": "Requested by",
+  "procurement.requiredBy": "Required by date",
+  "procurement.eventRef": "Event / order reference",
+  "procurement.eventRef.ph": "Enquiry ID, event name, etc.",
+  "procurement.notes.ph": "Delivery instructions, urgency, vendor notes…",
+  "procurement.materials.title": "Raw Materials",
+  "procurement.materials.desc": "Enter quantities for each item you need.",
+  "procurement.item": "Item",
+  "procurement.unit": "Unit",
+  "procurement.qty": "Qty",
+  "procurement.summary.desc": "Review your procurement request before submitting.",
+  "procurement.noMaterials": "No materials selected yet.",
+  "procurement.submitSuccess": "Procurement request submitted successfully.",
+  "procurement.validate.name": "Requested by name is required.",
+  "procurement.validate.date": "Required-by date is required.",
+  "procurement.validate.dateFuture": "Required-by date must be in the future.",
+  "procurement.validate.materials": "Please enter quantity for at least one material.",
 
   "tab.basics": "Basic Details",
   "tab.venue": "Venue",
@@ -131,9 +174,52 @@ const en: Dict = {
 };
 
 const hi: Dict = {
-  "app.title": "नई इवेंट पूछताछ",
-  "app.subtitle": "पैकेज, मेनू, सजावट और बाकी सब के लिए पूरा कोटेशन बनाएं।",
+  "app.title": "बैंक्वेट मैनेजर",
+  "app.subtitle": "पूछताछ, मेनू चयन और खरीद — एक ही जगह।",
   "lang.label": "भाषा",
+
+  "home.title": "बैंक्वेट मैनेजर",
+  "home.subtitle": "शुरू करने के लिए एक विकल्प चुनें",
+  "home.choose": "आज आप क्या करना चाहेंगे?",
+  "home.open": "खोलें",
+  "home.back": "होम पर वापस",
+
+  "module.enquiry.title": "इवेंट पूछताछ",
+  "module.enquiry.subtitle": "पैकेज, मेनू, सजावट और अधिक के साथ पूरा कोटेशन।",
+  "module.enquiry.desc": "स्थान, पैकेज, मेनू, मंच, अतिरिक्त और PDF कोट के साथ पूर्ण पूछताछ।",
+
+  "module.menu.title": "मेनू चयन",
+  "module.menu.subtitle": "मौजूदा बुकिंग के लिए थाली और व्यंजन अंतिम करें।",
+  "module.menu.desc": "थाली पैकेज और व्यंजन चुनें — या बाद के लिए टालें।",
+
+  "module.procurement.title": "कच्चा माल खरीद",
+  "module.procurement.subtitle": "केटरिंग सामग्री और आपूर्ति का अनुरोध।",
+  "module.procurement.desc": "रसोई और केटरिंग के लिए कच्चे माल की आवश्यकता भेजें।",
+
+  "menuSelection.basicsDesc": "इस मेनू चयन के लिए ग्राहक विवरण।",
+
+  "procurement.tab.details": "अनुरोध विवरण",
+  "procurement.tab.materials": "सामग्री",
+  "procurement.tab.summary": "सारांश",
+  "procurement.details.title": "खरीद अनुरोध",
+  "procurement.details.desc": "कौन अनुरोध कर रहा है और कब चाहिए?",
+  "procurement.requestedBy": "अनुरोधकर्ता",
+  "procurement.requiredBy": "आवश्यक तिथि",
+  "procurement.eventRef": "इवेंट / ऑर्डर संदर्भ",
+  "procurement.eventRef.ph": "पूछताछ ID, इवेंट नाम, आदि",
+  "procurement.notes.ph": "डिलीवरी निर्देश, तात्कालिकता…",
+  "procurement.materials.title": "कच्चा माल",
+  "procurement.materials.desc": "प्रत्येक वस्तु के लिए मात्रा दर्ज करें।",
+  "procurement.item": "वस्तु",
+  "procurement.unit": "इकाई",
+  "procurement.qty": "मात्रा",
+  "procurement.summary.desc": "जमा करने से पहले अपना अनुरोध देखें।",
+  "procurement.noMaterials": "अभी कोई सामग्री नहीं चुनी गई।",
+  "procurement.submitSuccess": "खरीद अनुरोध सफलतापूर्वक जमा हुआ।",
+  "procurement.validate.name": "अनुरोधकर्ता का नाम आवश्यक है।",
+  "procurement.validate.date": "आवश्यक तिथि आवश्यक है।",
+  "procurement.validate.dateFuture": "आवश्यक तिथि भविष्य की होनी चाहिए।",
+  "procurement.validate.materials": "कृपया कम से कम एक सामग्री की मात्रा दर्ज करें।",
 
   "tab.basics": "मूल विवरण",
   "tab.venue": "स्थान",
@@ -251,9 +337,52 @@ const hi: Dict = {
 };
 
 const mr: Dict = {
-  "app.title": "नवीन इव्हेंट चौकशी",
-  "app.subtitle": "पॅकेज, मेनू, सजावट आणि अधिकसाठी संपूर्ण कोटेशन तयार करा.",
+  "app.title": "बँक्वेट मॅनेजर",
+  "app.subtitle": "चौकशी, मेनू निवड आणि खरेदी — एकाच ठिकाणी.",
   "lang.label": "भाषा",
+
+  "home.title": "बँक्वेट मॅनेजर",
+  "home.subtitle": "सुरू करण्यासाठी एक पर्याय निवडा",
+  "home.choose": "आज तुम्हाला काय करायचे आहे?",
+  "home.open": "उघडा",
+  "home.back": "मुख्यपृष्ठावर परत",
+
+  "module.enquiry.title": "इव्हेंट चौकशी",
+  "module.enquiry.subtitle": "पॅकेज, मेनू, सजावट आणि अधिकासह संपूर्ण कोटेशन.",
+  "module.enquiry.desc": "स्थळ, पॅकेज, मेनू, स्टेज, अतिरिक्त आणि PDF कोटसह पूर्ण चौकशी.",
+
+  "module.menu.title": "मेनू निवड",
+  "module.menu.subtitle": "विद्यमान बुकिंगसाठी थाळी आणि पदार्थ अंतिम करा.",
+  "module.menu.desc": "थाळी पॅकेज आणि पदार्थ निवडा — किंवा नंतरसाठी पुढे ढकला.",
+
+  "module.procurement.title": "कच्चा माल खरेदी",
+  "module.procurement.subtitle": "केटरिंग साहित्य आणि पुरवठ्याची विनंती.",
+  "module.procurement.desc": "स्वयंपाकघर आणि केटरिंगसाठी कच्च्या मालाची गरज पाठवा.",
+
+  "menuSelection.basicsDesc": "या मेनू निवडीसाठी ग्राहक तपशील.",
+
+  "procurement.tab.details": "विनंती तपशील",
+  "procurement.tab.materials": "साहित्य",
+  "procurement.tab.summary": "सारांश",
+  "procurement.details.title": "खरेदी विनंती",
+  "procurement.details.desc": "कोण विनंती करत आहे आणि कधी हवे?",
+  "procurement.requestedBy": "विनंतीकर्ता",
+  "procurement.requiredBy": "आवश्यक तारीख",
+  "procurement.eventRef": "इव्हेंट / ऑर्डर संदर्भ",
+  "procurement.eventRef.ph": "चौकशी ID, इव्हेंट नाव, इ.",
+  "procurement.notes.ph": "डिलिव्हरी सूचना, तातडी…",
+  "procurement.materials.title": "कच्चा माल",
+  "procurement.materials.desc": "प्रत्येक वस्तूसाठी प्रमाण प्रविष्ट करा.",
+  "procurement.item": "वस्तू",
+  "procurement.unit": "एकक",
+  "procurement.qty": "प्रमाण",
+  "procurement.summary.desc": "सबमिट करण्यापूर्वी विनंती तपासा.",
+  "procurement.noMaterials": "अद्याप कोणतेही साहित्य निवडले नाही.",
+  "procurement.submitSuccess": "खरेदी विनंती यशस्वीरित्या पाठवली.",
+  "procurement.validate.name": "विनंतीकर्त्याचे नाव आवश्यक आहे.",
+  "procurement.validate.date": "आवश्यक तारीख आवश्यक आहे.",
+  "procurement.validate.dateFuture": "आवश्यक तारीख भविष्यात असावी.",
+  "procurement.validate.materials": "कृपया किमान एक साहित्याचे प्रमाण प्रविष्ट करा.",
 
   "tab.basics": "मूलभूत तपशील",
   "tab.venue": "स्थळ",
