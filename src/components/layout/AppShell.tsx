@@ -13,6 +13,8 @@ type AppShellProps = {
 
 export const AppShell = ({ title, subtitle, backTo = "/", children }: AppShellProps) => {
   const { t, lang, setLang } = useT();
+  const isHome = !backTo;
+  const appName = t("app.title");
 
   return (
     <div className="min-h-screen bg-background">
@@ -40,14 +42,24 @@ export const AppShell = ({ title, subtitle, backTo = "/", children }: AppShellPr
                 </Link>
               </Button>
             )}
-            <span
-              aria-hidden="true"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-gold text-base font-bold text-primary-foreground shadow-gold"
+            <Link
+              to="/"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-gold text-base font-bold text-primary-foreground shadow-gold transition-opacity hover:opacity-90"
+              aria-label={appName}
             >
               ✦
-            </span>
+            </Link>
             <div className="min-w-0">
-              <h1 className="font-display truncate text-2xl font-bold tracking-tight text-white sm:text-3xl">
+              {!isHome && (
+                <p className="font-display text-[11px] font-semibold uppercase tracking-[0.22em] text-gradient-gold">
+                  {appName}
+                </p>
+              )}
+              <h1
+                className={`font-display truncate font-bold tracking-tight text-white ${
+                  isHome ? "text-2xl sm:text-3xl" : "text-xl sm:text-2xl"
+                }`}
+              >
                 {title}
               </h1>
               <p className="mt-0.5 text-sm text-white/60">{subtitle}</p>
