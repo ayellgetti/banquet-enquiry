@@ -171,3 +171,23 @@ body.printing .print-only { display: block !important; }
 
 body.printing .plate-package-mobile { display: none !important; }
 body.printing .plate-package-table { display: block !important; }
+
+body.printing .menu-alert-muted {
+  background-color: hsl(210 20% 96%) !important;
+  border-color: hsl(214 20% 88%) !important;
+}
+body.printing .menu-alert-amber {
+  background-color: hsl(48 96% 95%) !important;
+  border-color: hsl(45 93% 75%) !important;
+  color: hsl(28 80% 20%) !important;
+}
+body.printing .menu-alert-info {
+  background-color: hsl(214 95% 96%) !important;
+  border-color: hsl(213 90% 82%) !important;
+  color: hsl(222 47% 20%) !important;
+}
+body.printing .menu-alert-error {
+  background-color: hsl(0 86% 97%) !important;
+  border-color: hsl(0 72% 80%) !important;
+  color: hsl(0 72% 35%) !important;
+}
