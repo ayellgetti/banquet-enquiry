@@ -168,3 +168,6 @@ body.printing .text-gradient-gold {
 .print-only { display: none; }
 @media print { .print-only { display: block !important; } }
 body.printing .print-only { display: block !important; }
+
+body.printing .plate-package-mobile { display: none !important; }
+body.printing .plate-package-table { display: block !important; }

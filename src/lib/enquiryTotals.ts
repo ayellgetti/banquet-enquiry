@@ -1,12 +1,12 @@
 import {
   PACKAGES,
-  MENU_ITEMS,
   PLATE_PACKAGES,
   DECOR_OPTIONS,
   STAGE_OPTIONS,
   CHAIR_OPTIONS,
   EXTRA_SERVICES,
   VENUE_OPTIONS,
+  calcExtraDishesPerPlate,
 } from "@/data/enquiryOptions";
 import type { EnquiryState } from "@/types/enquiry";
 
@@ -29,23 +29,10 @@ export function buildLineItems(s: EnquiryState): LineItem[] {
 
   const plate = PLATE_PACKAGES.find((p) => p.id === s.platePackageId);
   if (plate) {
-    // Group selected items by category, charge only those beyond each limit.
-    const byCat: Record<string, typeof MENU_ITEMS> = {};
-    s.menuItemIds.forEach((id) => {
-      const m = MENU_ITEMS.find((i) => i.id === id);
-      if (!m) return;
-      (byCat[m.category] ||= []).push(m);
-    });
-    let extras = 0;
-    let extraCount = 0;
-    Object.entries(byCat).forEach(([cat, list]) => {
-      const limit = (plate.limits as Record<string, number>)[cat] ?? 0;
-      // Cheapest items consume the included slots; most expensive count as extras.
-      const sorted = [...list].sort((a, b) => a.price - b.price);
-      const over = sorted.slice(limit);
-      extras += over.reduce((sum, m) => sum + m.price, 0);
-      extraCount += over.length;
-    });
+    const { extraCount, extrasPerPlate: extras } = calcExtraDishesPerPlate(
+      s.menuItemIds,
+      plate.limits,
+    );
     const perPlate = plate.basePrice + extras;
     items.push({
       label: `${plate.name} (Menu)`,

@@ -8,11 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { SectionCard } from "./SectionCard";
 import { SelectableCard } from "./SelectableCard";
+import { PlatePackageComparison } from "./PlatePackageComparison";
 import { RichTextEditor } from "./RichTextEditor";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import {
   PACKAGES, MENU_ITEMS, PLATE_PACKAGES, COMMON_PLATE_ITEMS, DECOR_OPTIONS, STAGE_OPTIONS,
   CHAIR_OPTIONS, EXTRA_SERVICES, VENUE_OPTIONS, EVENT_TYPES, SOURCES,
+  getIncludedMenuItemIds, getItemExtraPrice, getCategoryExtraPrice,
+  getLiveCounterExtraLabel, getMenuSubcategoryErrors, LIVE_COUNTER_RULES,
+  filterMenuIdsForPackage, getMenuItemsForPackage,
+  isSwappableMenuCategory, getSwappablePoolLimit, getSwappablePoolStatus,
+  SWAPPABLE_MENU_CATEGORIES,
 } from "@/data/enquiryOptions";
 import { initialEnquiry, type EnquiryState } from "@/types/enquiry";
 import { calcTotals, formatINR } from "@/lib/enquiryTotals";
@@ -21,6 +27,7 @@ import { downloadPdfFromElement } from "@/lib/downloadPdf";
 import { ArrowLeft, ArrowRight, Printer, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useT } from "@/i18n";
+import { useMenuLabels } from "@/i18n/menuLabels";
 
 const ENQUIRY_TABS = [
   "basics", "venue", "package", "menu", "stage", "extras", "summary",
@@ -66,6 +73,7 @@ const validatePhone = (raw: string, t: (k: string) => string): string | null => 
 
 export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVariant }) => {
   const { t } = useT();
+  const menuLabels = useMenuLabels();
   const TAB_ORDER = (variant === "menu-selection" ? MENU_SELECTION_TABS : ENQUIRY_TABS) as readonly TabKey[];
   const isMenuSelection = variant === "menu-selection";
   const [tab, setTab] = useState<TabKey>(isMenuSelection ? "menu" : "basics");
@@ -117,16 +125,21 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
   const invalidPackage = attempted.has("package") && !state.packageId;
   const invalidStage   = attempted.has("stage")   && !state.stageId;
   const menuPlateMissing = attempted.has("menu") && !state.platePackageId;
+  const selectedPlate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
+  const selectedPlateLimits = (selectedPlate?.limits ?? {}) as Record<string, number>;
+  const swappablePool = getSwappablePoolStatus(state.menuItemIds, selectedPlateLimits);
   const invalidCats = new Set<string>();
   if (attempted.has("menu") && !state.selectMenuLater && state.platePackageId) {
-    const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
-    const limits = (plate?.limits ?? {}) as Record<string, number>;
-    for (const [cat, limit] of Object.entries(limits)) {
-      if (!limit) continue;
+    if (!swappablePool.isComplete) {
+      SWAPPABLE_MENU_CATEGORIES.forEach((cat) => invalidCats.add(cat));
+    }
+    for (const [cat, limit] of Object.entries(selectedPlateLimits)) {
+      if (!limit || isSwappableMenuCategory(cat)) continue;
       const sel = MENU_ITEMS.filter((m) => m.category === cat && state.menuItemIds.includes(m.id)).length;
       if (sel < limit) invalidCats.add(cat);
     }
   }
+  const menuIncludedIds = getIncludedMenuItemIds(state.menuItemIds, selectedPlateLimits);
   const validateTab = (key: TabKey): string[] => {
     const errs: string[] = [];
     switch (key) {
@@ -152,17 +165,26 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
         if (state.menuItemIds.length === 0) errs.push(t("toast.needPlate"));
         const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
         const limits = (plate?.limits ?? {}) as Record<string, number>;
+        const pool = getSwappablePoolStatus(state.menuItemIds, limits);
+        if (!pool.isComplete) {
+          errs.push(
+            t("toast.needSwappablePool")
+              .replace("{n}", String(pool.required))
+              .replace("{selected}", String(pool.selected)),
+          );
+        }
         for (const [cat, limit] of Object.entries(limits)) {
-          if (!limit) continue;
+          if (!limit || isSwappableMenuCategory(cat)) continue;
           const selected = MENU_ITEMS.filter(
             (m) => m.category === cat && state.menuItemIds.includes(m.id),
           ).length;
           if (selected < limit) {
             errs.push(
-              t("toast.needMenuIncluded").replace("{cat}", cat).replace("{n}", String(limit)),
+              t("toast.needMenuIncluded").replace("{cat}", menuLabels.categoryName(cat)).replace("{n}", String(limit)),
             );
           }
         }
+        getMenuSubcategoryErrors(state.menuItemIds).forEach((e) => errs.push(e.message));
         break;
       }
       case "stage": if (!state.stageId) errs.push(t("toast.needStage")); break;
@@ -435,8 +457,57 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
         {/* MENU */}
         <TabsContent value="menu" className="mt-6">
           <SectionCard title={t("menu.title")} description={t("menu.desc")} required>
-            {!isMenuSelection && (
-            <div className="mb-6 flex items-start gap-3 rounded-lg border bg-muted/40 p-4">
+            {!state.platePackageId && !menuPlateMissing && (
+              <p className="mb-3 text-sm text-muted-foreground">{t("menu.selectPlatePackage")}</p>
+            )}
+            {menuPlateMissing && (
+              <p className="mb-3 text-sm text-destructive">{t("toast.needPlatePackage")}</p>
+            )}
+            <div className="mb-6">
+              <PlatePackageComparison
+                selectedId={state.platePackageId}
+                invalid={menuPlateMissing}
+                onSelect={(newId) => {
+                  update("platePackageId", newId);
+                  update(
+                    "menuItemIds",
+                    newId ? filterMenuIdsForPackage(state.menuItemIds, newId) : [],
+                  );
+                }}
+              />
+            </div>
+
+            <div className="mb-4 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">{t("menu.includedEvery")}</span>{" "}
+              {COMMON_PLATE_ITEMS.map(menuLabels.commonPlateName).join(" · ")}
+            </div>
+
+            {(() => {
+              const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
+              if (!plate?.extras?.length) return null;
+              return (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950">
+                  <span className="font-semibold">{plate.name}:</span> {plate.extras.join(" · ")}
+                </div>
+              );
+            })()}
+
+            {swappablePool.required > 0 && (!state.selectMenuLater || isMenuSelection) && state.platePackageId && (
+              <div className={`mb-4 rounded-lg border p-3 text-xs ${
+                invalidCats.size > 0 && SWAPPABLE_MENU_CATEGORIES.some((c) => invalidCats.has(c))
+                  ? "border-destructive/50 bg-destructive/5 text-destructive"
+                  : "border-blue-200 bg-blue-50/80 text-blue-950"
+              }`}>
+                <span className="font-semibold">{t("menu.swappablePoolTitle")}</span>{" "}
+                {t("menu.swappablePoolDesc").replace("{n}", String(swappablePool.required))}
+                <span className="mt-1 block font-medium tabular-nums">
+                  {swappablePool.selected}/{swappablePool.required} {t("menu.swappablePoolStatus")}
+                </span>
+              </div>
+            )}
+
+            {state.platePackageId && !isMenuSelection && (
+            <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 p-4">
               <Checkbox
                 id="select-menu-later"
                 checked={state.selectMenuLater}
@@ -458,74 +529,6 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
             </div>
             )}
 
-            {menuPlateMissing && (
-              <p className="mb-3 text-sm text-destructive">{t("toast.needPlatePackage")}</p>
-            )}
-            <div className={`mb-6 overflow-x-auto rounded-lg border ${menuPlateMissing ? "ring-2 ring-destructive/60" : ""}`}>
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="bg-muted/40">
-                    <th className="sticky left-0 z-10 bg-muted/40 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t("menu.category") ?? "Category"}
-                    </th>
-                    {PLATE_PACKAGES.map((p) => {
-                      const isSel = state.platePackageId === p.id;
-                      return (
-                        <th
-                          key={p.id}
-                          onClick={() => {
-                            update("platePackageId", isSel ? "" : p.id);
-                            update("menuItemIds", []);
-                          }}
-                          className={`min-w-[140px] cursor-pointer border-l px-3 py-3 text-center align-top transition-colors ${
-                            isSel ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                          }`}
-                        >
-                          <div className="text-sm font-semibold">{p.name}</div>
-                          <div className={`mt-1 text-xs ${isSel ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                            {p.basePrice > 0 ? `₹${p.basePrice}/plate` : "—"}
-                          </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const allCats = Array.from(
-                      new Set(PLATE_PACKAGES.flatMap((p) => Object.keys(p.limits))),
-                    );
-                    return allCats.map((cat) => (
-                      <tr key={cat} className="border-t">
-                        <td className="sticky left-0 z-10 bg-background px-3 py-2 text-xs font-medium text-foreground">
-                          {cat}
-                        </td>
-                        {PLATE_PACKAGES.map((p) => {
-                          const isSel = state.platePackageId === p.id;
-                          const n = (p.limits as Record<string, number>)[cat];
-                          return (
-                            <td
-                              key={p.id}
-                              className={`border-l px-3 py-2 text-center tabular-nums ${
-                                isSel ? "bg-primary/10 font-semibold text-foreground" : "text-muted-foreground"
-                              }`}
-                            >
-                              {n ?? "—"}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ));
-                  })()}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mb-4 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">{t("menu.includedEvery")}</span>{" "}
-              {COMMON_PLATE_ITEMS.join(" · ")}
-            </div>
-
             {!isMenuSelection && state.selectMenuLater && state.platePackageId && (
               <p className="mb-4 text-sm text-muted-foreground italic">{t("menu.selectLaterHint")}</p>
             )}
@@ -540,23 +543,39 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
                 : { type: "multiple" as const, defaultValue: [] })}
               className="w-full"
             >
-              {Object.entries(menuByCategory).map(([cat, items]) => {
+              {Object.entries(menuByCategory)
+                .filter(([cat]) => {
+                  const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
+                  if (!plate) return false;
+                  if (plate.id === "plate-custom") return true;
+                  if (isSwappableMenuCategory(cat)) {
+                    return getSwappablePoolLimit(plate.limits) > 0;
+                  }
+                  return ((plate.limits as Record<string, number>)[cat] ?? 0) > 0;
+                })
+                .map(([cat, items]) => {
                 const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
                 const limit = (plate?.limits as Record<string, number> | undefined)?.[cat] ?? 0;
-                const selectedItems = items.filter((m) => state.menuItemIds.includes(m.id));
+                const isSwappable = isSwappableMenuCategory(cat);
+                const catItems = state.platePackageId
+                  ? getMenuItemsForPackage(state.platePackageId, cat)
+                  : items;
+                const selectedItems = catItems.filter((m) => state.menuItemIds.includes(m.id));
                 const selectedCount = selectedItems.length;
-                // Cheapest selections fill the included slots; pricier ones are extras.
-                const includedIds = new Set(
-                  [...selectedItems].sort((a, b) => a.price - b.price).slice(0, limit).map((m) => m.id),
-                );
-                const extraCount = Math.max(0, selectedCount - limit);
+                const extraCount = selectedItems.filter((m) => !menuIncludedIds.has(m.id)).length;
                 const catInvalid = invalidCats.has(cat);
                 return (
                   <AccordionItem key={cat} value={cat} className={`border-b-0 mb-2 overflow-hidden rounded-lg border bg-white ${catInvalid ? "ring-2 ring-destructive/60" : ""}`}>
                     <AccordionTrigger className="bg-muted/40 px-4 py-3 text-sm font-semibold uppercase tracking-wide hover:no-underline">
                       <span className="flex items-center gap-2">
-                        {cat}
-                        {limit > 0 ? (
+                        {menuLabels.categoryName(cat)}
+                        {isSwappable ? (
+                          selectedCount > 0 && (
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                              {selectedCount} {t("menu.selected")}
+                            </span>
+                          )
+                        ) : limit > 0 ? (
                           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${catInvalid ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"}`}>
                             {Math.min(selectedCount, limit)}/{limit} {t("menu.included")}
                           </span>
@@ -567,7 +586,7 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
                             </span>
                           )
                         )}
-                        {limit > 0 && extraCount > 0 && (
+                        {extraCount > 0 && (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                             +{extraCount} {t("menu.extra")}
                           </span>
@@ -576,34 +595,37 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
                     </AccordionTrigger>
                     <AccordionContent className="bg-white px-4 pb-4">
                       <p className="pt-3 text-xs text-muted-foreground">
-                        {limit > 0
-                          ? `First ${limit} selection${limit > 1 ? "s" : ""} included in plate price. Any beyond add per-plate cost (lowest-priced fills the included slots).`
-                          : "Custom plate — every selected dish is added to the per-plate cost."}
+                        {isSwappable
+                          ? t("menu.swappableCategoryHint")
+                          : cat === "Live Counters"
+                            ? limit > 0
+                              ? `First ${limit} counter type${limit > 1 ? "s" : ""} included. Extra counters charged per counter type (see rates below).`
+                              : "Custom plate — each live counter charged per counter type."
+                            : limit > 0
+                              ? `First ${limit} selection${limit > 1 ? "s" : ""} included. Extras: ₹${getCategoryExtraPrice(cat)}/plate${cat === "Welcome Drink" || cat === "Sweets & Ice Cream" ? " (+ premiums for special items)" : ""}.`
+                              : `Custom plate — ₹${getCategoryExtraPrice(cat)}/plate per dish.`}
                       </p>
                       {(() => {
-                        const hasSub = items.some((m) => m.subcategory);
-                        const groups: Record<string, typeof items> = {};
-                        items.forEach((m) => {
+                        const hasSub = catItems.some((m) => m.subcategory);
+                        const groups: Record<string, typeof catItems> = {};
+                        catItems.forEach((m) => {
                           const key = m.subcategory || "";
                           (groups[key] ||= []).push(m);
                         });
-                        const renderCard = (m: typeof items[number]) => {
+                        const renderCard = (m: typeof catItems[number]) => {
                           const isSel = state.menuItemIds.includes(m.id);
-                          const isExtra = isSel && !includedIds.has(m.id);
-                          const priceLabel =
-                            m.price === 0
-                              ? isExtra
-                                ? t("menu.includedBeyond")
-                                : t("menu.included")
-                              : isExtra
-                                ? `+₹${m.price}/plate (extra)`
-                                : `+₹${m.price}/plate`;
+                          const isExtra = isSel && !menuIncludedIds.has(m.id);
+                          const priceLabel = isExtra
+                            ? m.category === "Live Counters"
+                              ? t("menu.extraCounter")
+                              : `+₹${getItemExtraPrice(m)}/plate (extra)`
+                            : t("menu.included");
                           return (
                             <SelectableCard
                               key={m.id}
                               selected={isSel}
                               onClick={() => update("menuItemIds", toggle(state.menuItemIds, m.id))}
-                              title={m.name}
+                              title={menuLabels.itemName(m)}
                               price={priceLabel}
                               subtitle={isExtra ? t("menu.beyondLimit") : undefined}
                               compact
@@ -613,7 +635,7 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
                         if (!hasSub) {
                           return (
                             <div className="grid gap-2 pt-3 sm:grid-cols-3 lg:grid-cols-4">
-                              {items.map(renderCard)}
+                              {catItems.map(renderCard)}
                             </div>
                           );
                         }
@@ -626,6 +648,10 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
                           >
                             {Object.entries(groups).map(([sub, subItems]) => {
                               const subSelCount = subItems.filter((m) => state.menuItemIds.includes(m.id)).length;
+                              const subHasExtra = subItems.some(
+                                (m) => state.menuItemIds.includes(m.id) && !menuIncludedIds.has(m.id),
+                              );
+                              const subRule = sub ? LIVE_COUNTER_RULES[sub] : undefined;
                               return (
                                 <AccordionItem
                                   key={sub}
@@ -633,11 +659,26 @@ export const EnquiryForm = ({ variant = "enquiry" }: { variant?: EnquiryFormVari
                                   className="border-b-0 mb-2 overflow-hidden rounded-md border bg-white"
                                 >
                                   <AccordionTrigger className="bg-muted/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide hover:no-underline">
-                                    <span className="flex items-center gap-2">
-                                      {sub || "Other"}
+                                    <span className="flex flex-wrap items-center gap-2">
+                                      {sub ? menuLabels.subcategoryName(sub) : "Other"}
+                                      {subRule && (
+                                        <span className="font-normal normal-case text-muted-foreground">
+                                          {getLiveCounterExtraLabel(sub)}
+                                        </span>
+                                      )}
+                                      {subRule?.minSelection && (
+                                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">
+                                          min {subRule.minSelection}
+                                        </span>
+                                      )}
                                       {subSelCount > 0 && (
                                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
                                           {subSelCount} {t("menu.selected")}
+                                        </span>
+                                      )}
+                                      {subHasExtra && (
+                                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                          {t("menu.extra")}
                                         </span>
                                       )}
                                     </span>
@@ -921,6 +962,7 @@ const Row = ({ label, value }: { label: string; value: string }) => (
 
 const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState; menuOnly?: boolean }) => {
   const { t } = useT();
+  const menuLabels = useMenuLabels();
   const pkg = PACKAGES.find((p) => p.id === state.packageId);
   const venue = VENUE_OPTIONS.find((v) => v.id === state.venueId);
   const plate = PLATE_PACKAGES.find((p) => p.id === state.platePackageId);
@@ -935,6 +977,10 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
     (acc[m.category] ||= []).push(m);
     return acc;
   }, {});
+  const summaryIncludedIds = plate
+    ? getIncludedMenuItemIds(state.menuItemIds, plate.limits)
+    : new Set<string>();
+  const summaryPool = plate ? getSwappablePoolStatus(state.menuItemIds, plate.limits) : null;
 
   const sections: { title: string; body: React.ReactNode; key: string }[] = [];
 
@@ -978,6 +1024,14 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
     });
   }
 
+  sections.push({
+    key: "plateCompare",
+    title: t("section.platePackages"),
+    body: (
+      <PlatePackageComparison selectedId={state.platePackageId} />
+    ),
+  });
+
   if (plate) {
     sections.push({
       key: "menu",
@@ -996,22 +1050,33 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
             <p className="text-xs text-muted-foreground">{t("summary.noDishes")}</p>
           ) : (
             <div className="space-y-2">
+              {summaryPool && summaryPool.required > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {t("menu.swappablePoolDesc").replace("{n}", String(summaryPool.required))}{" "}
+                  <span className="font-medium tabular-nums">
+                    ({summaryPool.selected}/{summaryPool.required} {t("menu.swappablePoolStatus")})
+                  </span>
+                </p>
+              )}
               {Object.entries(menuByCat).map(([cat, items]) => {
                 const limit = (plate.limits as Record<string, number>)[cat] ?? 0;
-                const sorted = [...items].sort((a, b) => a.price - b.price);
-                const includedIds = new Set(sorted.slice(0, limit).map((m) => m.id));
-                const extraCount = items.filter((m) => limit > 0 && !includedIds.has(m.id)).length
-                  + (limit === 0 ? items.length : 0);
+                const isSwappable = isSwappableMenuCategory(cat);
+                const extraCount = items.filter((m) => !summaryIncludedIds.has(m.id)).length;
                 return (
                   <div
                     key={cat}
                     className={`rounded-md border p-2 ${extraCount > 0 ? "border-amber-300 bg-amber-50/50" : "bg-muted/30"}`}
                   >
                     <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {cat}
-                      {limit > 0 && (
+                      {menuLabels.categoryName(cat)}
+                      {!isSwappable && limit > 0 && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
                           {Math.min(items.length, limit)}/{limit} {t("menu.included")}
+                        </span>
+                      )}
+                      {isSwappable && items.length > 0 && (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
+                          {items.length} {t("menu.selected")}
                         </span>
                       )}
                       {extraCount > 0 && (
@@ -1022,9 +1087,7 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
                     </div>
                     <ul className="space-y-0.5">
                       {items.map((m) => {
-                        const isExtra = limit > 0 && !includedIds.has(m.id);
-                        const isCustom = limit === 0;
-                        const beyondPackage = isExtra || isCustom;
+                        const beyondPackage = !summaryIncludedIds.has(m.id);
                         return (
                           <li
                             key={m.id}
@@ -1033,7 +1096,7 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
                             }`}
                           >
                             <span className="flex items-center gap-1.5">
-                              {m.name}
+                              {menuLabels.itemName(m)}
                               {beyondPackage && (
                                 <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
                                   {t("menu.extra")}
@@ -1041,7 +1104,11 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
                               )}
                             </span>
                             <span className={beyondPackage ? "font-semibold text-amber-800 tabular-nums" : "text-muted-foreground"}>
-                              {beyondPackage ? `+₹${m.price}/plate` : t("menu.included")}
+                              {beyondPackage
+                                ? m.category === "Live Counters" && m.subcategory
+                                  ? getLiveCounterExtraLabel(m.subcategory)
+                                  : `+₹${getItemExtraPrice(m)}/plate`
+                                : t("menu.included")}
                             </span>
                           </li>
                         );
@@ -1108,11 +1175,12 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
 
   if (sections.length === 0) return null;
 
+  const plateCompareSection = sections.find((s) => s.key === "plateCompare");
   const menuSection = sections.find((s) => s.key === "menu");
-  const otherSections = sections.filter((s) => s.key !== "menu");
+  const otherSections = sections.filter((s) => s.key !== "menu" && s.key !== "plateCompare");
 
-  const renderSection = (sec: { title: string; body: React.ReactNode; key: string }) => (
-    <div key={sec.key} className="rounded-lg border bg-white p-3">
+  const renderSection = (sec: { title: string; body: React.ReactNode; key: string }, fullWidth = false) => (
+    <div key={sec.key} className={`rounded-lg border bg-white p-3 ${fullWidth ? "md:col-span-2" : ""}`}>
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
         {sec.title}
       </div>
@@ -1126,11 +1194,12 @@ const SelectionsBreakdown = ({ state, menuOnly = false }: { state: EnquiryState;
         {t("summary.selectionDetails")}
       </h3>
       <div className="grid gap-3 md:grid-cols-2 md:items-start">
+        {plateCompareSection ? renderSection(plateCompareSection, true) : null}
         <div className="space-y-3">
           {menuSection ? renderSection(menuSection) : null}
         </div>
         <div className="space-y-3">
-          {otherSections.map(renderSection)}
+          {otherSections.map((sec) => renderSection(sec))}
         </div>
       </div>
     </div>

@@ -3,6 +3,9 @@ import {
   MENU_ITEMS,
   PLATE_PACKAGES,
   VENUE_OPTIONS,
+  getIncludedMenuItemIds,
+  getItemExtraPrice,
+  getLiveCounterExtraLabel,
 } from "@/data/enquiryOptions";
 import type { EnquiryState } from "@/types/enquiry";
 
@@ -62,14 +65,16 @@ function formatMenuSelections(state: EnquiryState): string[] {
   });
 
   lines.push("Selected Dishes:");
+  const includedIds = getIncludedMenuItemIds(state.menuItemIds, plate.limits);
   for (const [cat, items] of Object.entries(byCat)) {
-    const limit = (plate.limits as Record<string, number>)[cat] ?? 0;
-    const sorted = [...items].sort((a, b) => a.price - b.price);
-    const includedIds = new Set(sorted.slice(0, limit).map((m) => m.id));
     const dishLabels = items.map((m) => {
-      const isExtra = limit > 0 && !includedIds.has(m.id);
-      const isCustom = limit === 0 && m.price > 0;
-      if (isExtra || isCustom) return `${m.name} (+₹${m.price}/plate)`;
+      if (!includedIds.has(m.id)) {
+        const extra =
+          m.category === "Live Counters" && m.subcategory
+            ? getLiveCounterExtraLabel(m.subcategory)
+            : `+₹${getItemExtraPrice(m)}/plate`;
+        return `${m.name} (${extra})`;
+      }
       return m.name;
     });
     lines.push(`  ${cat}: ${dishLabels.join(", ")}`);

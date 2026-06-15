@@ -33,6 +33,8 @@ export type PlatePackage = {
   name: string;
   basePrice: number;
   limits: Partial<Record<MenuCategory, number>>;
+  /** When set for a category, only these menu item IDs can be chosen on this package. */
+  allowedItems?: Partial<Record<MenuCategory, string[]>>;
   extras?: string[];
 };
 
@@ -103,8 +105,258 @@ export const PACKAGES: Package[] = [
   slotPkg("silver-fullday-2", "Full Day (Late)", "Full Day 10:00 AM – 10:00 PM", 12),
 ];
 
-// `price` = per-plate cost charged ONLY when this dish is selected beyond
-// the plate's allowed limit for its category. Within the limit it is included.
+/** Per-plate extra charge by menu category (beyond package limit). */
+export const CATEGORY_EXTRA_PRICES: Record<MenuCategory, number> = {
+  "Welcome Drink": 30,
+  "Starters": 40,
+  "Salads": 30,
+  "Farsan": 40,
+  "Main Course": 100,
+  "Breakfast": 45,
+  "Kathiawadi": 100,
+  "Rajasthani": 100,
+  "Indian Breads": 30,
+  "Raita": 30,
+  "Rice": 60,
+  "Dal": 75,
+  "Sweets & Ice Cream": 50,
+  "Live Counters": 110,
+};
+
+export type LiveCounterRule = {
+  flatPrice?: number;
+  pricePerItem?: number;
+  minSelection?: number;
+  bundlePrice?: number;
+};
+
+/** Live counter subcategory pricing — flat per counter or bundled minimums. */
+export const LIVE_COUNTER_RULES: Record<string, LiveCounterRule> = {
+  "Chaat Counter": { flatPrice: 40 },
+  "Pasta Counter": { flatPrice: 40 },
+  "Pizza": { flatPrice: 50 },
+  "South Indian Counter": { bundlePrice: 75, minSelection: 3, pricePerItem: 25 },
+  "Chinese / Oriental Counter": { pricePerItem: 30, minSelection: 3 },
+  "Additional Counters": { flatPrice: 110 },
+};
+
+const LIVE_COUNTER_CATEGORY = "Live Counters" as const;
+
+function counterSortPrice(sub: string): number {
+  const rule = LIVE_COUNTER_RULES[sub];
+  if (!rule) return CATEGORY_EXTRA_PRICES["Live Counters"];
+  if (rule.flatPrice != null) return rule.flatPrice;
+  if (rule.bundlePrice != null) return rule.bundlePrice;
+  if (rule.pricePerItem != null && rule.minSelection != null) {
+    return rule.pricePerItem * rule.minSelection;
+  }
+  return rule.pricePerItem ?? CATEGORY_EXTRA_PRICES["Live Counters"];
+}
+
+export function getCategoryExtraPrice(category: string): number {
+  return CATEGORY_EXTRA_PRICES[category as MenuCategory] ?? 50;
+}
+
+/** Per-plate extra for a single regular (non–live-counter) dish, incl. item premium. */
+export function getItemExtraPrice(item: MenuItem): number {
+  if (item.category === LIVE_COUNTER_CATEGORY) return 0;
+  return getCategoryExtraPrice(item.category) + item.price;
+}
+
+function calcLiveCounterSubExtra(sub: string, items: MenuItem[]): number {
+  const rule = LIVE_COUNTER_RULES[sub];
+  if (!rule) return CATEGORY_EXTRA_PRICES["Live Counters"];
+  if (rule.flatPrice != null) return rule.flatPrice;
+  if (rule.bundlePrice != null) return rule.bundlePrice;
+  if (rule.pricePerItem != null) {
+    const count = items.length;
+    return rule.minSelection != null
+      ? rule.pricePerItem * Math.max(count, rule.minSelection)
+      : rule.pricePerItem * count;
+  }
+  return CATEGORY_EXTRA_PRICES["Live Counters"];
+}
+
+export function getLiveCounterExtraLabel(sub: string): string {
+  const rule = LIVE_COUNTER_RULES[sub];
+  if (!rule) return `+₹${CATEGORY_EXTRA_PRICES["Live Counters"]}/plate`;
+  if (rule.flatPrice != null) return `+₹${rule.flatPrice}/plate (counter)`;
+  if (rule.bundlePrice != null) {
+    const min = rule.minSelection ?? 1;
+    return `+₹${rule.bundlePrice}/plate (min ${min} varieties)`;
+  }
+  if (rule.pricePerItem != null && rule.minSelection != null) {
+    return `+₹${rule.pricePerItem}/plate × min ${rule.minSelection}`;
+  }
+  return `+₹${rule.pricePerItem}/plate`;
+}
+
+/** Main Course, Rice, Dal & Live Counters share one interchangeable slot pool per package. */
+export const SWAPPABLE_MENU_CATEGORIES = [
+  "Main Course",
+  "Rice",
+  "Dal",
+  "Live Counters",
+] as const;
+
+export type SwappableMenuCategory = (typeof SWAPPABLE_MENU_CATEGORIES)[number];
+
+export function isSwappableMenuCategory(cat: string): cat is SwappableMenuCategory {
+  return (SWAPPABLE_MENU_CATEGORIES as readonly string[]).includes(cat);
+}
+
+export function getSwappablePoolLimit(limits: Partial<Record<MenuCategory, number>>): number {
+  return SWAPPABLE_MENU_CATEGORIES.reduce((sum, cat) => sum + (limits[cat] ?? 0), 0);
+}
+
+function countLiveCounterSlots(menuItemIds: string[]): number {
+  const subs = new Set<string>();
+  menuItemIds.forEach((id) => {
+    const m = MENU_ITEMS.find((i) => i.id === id);
+    if (m?.category === LIVE_COUNTER_CATEGORY && m.subcategory) subs.add(m.subcategory);
+  });
+  return subs.size;
+}
+
+export function countSwappablePoolSelections(menuItemIds: string[]): number {
+  let count = 0;
+  menuItemIds.forEach((id) => {
+    const m = MENU_ITEMS.find((i) => i.id === id);
+    if (!m || m.category === LIVE_COUNTER_CATEGORY) return;
+    if (isSwappableMenuCategory(m.category)) count += 1;
+  });
+  return count + countLiveCounterSlots(menuItemIds);
+}
+
+export function getSwappablePoolStatus(
+  menuItemIds: string[],
+  limits: Partial<Record<MenuCategory, number>>,
+): { selected: number; required: number; remaining: number; isComplete: boolean } {
+  const required = getSwappablePoolLimit(limits);
+  const selected = countSwappablePoolSelections(menuItemIds);
+  return {
+    selected,
+    required,
+    remaining: Math.max(0, required - selected),
+    isComplete: required === 0 || selected >= required,
+  };
+}
+
+type PoolUnit = { ids: string[]; price: number };
+
+function buildSwappablePoolUnits(items: MenuItem[]): PoolUnit[] {
+  const units: PoolUnit[] = [];
+  const lcBySub: Record<string, MenuItem[]> = {};
+  items.forEach((m) => {
+    if (m.category === LIVE_COUNTER_CATEGORY) {
+      const sub = m.subcategory || "";
+      (lcBySub[sub] ||= []).push(m);
+    } else {
+      units.push({ ids: [m.id], price: getItemExtraPrice(m) });
+    }
+  });
+  Object.entries(lcBySub).forEach(([sub, subItems]) => {
+    units.push({ ids: subItems.map((item) => item.id), price: counterSortPrice(sub) });
+  });
+  return units.sort((a, b) => a.price - b.price);
+}
+
+export function getIncludedMenuItemIds(
+  menuItemIds: string[],
+  limits: Partial<Record<MenuCategory, number>>,
+): Set<string> {
+  const byCat: Record<string, MenuItem[]> = {};
+  menuItemIds.forEach((id) => {
+    const m = MENU_ITEMS.find((i) => i.id === id);
+    if (!m) return;
+    (byCat[m.category] ||= []).push(m);
+  });
+
+  const included = new Set<string>();
+  const poolLimit = getSwappablePoolLimit(limits);
+  const swappableItems: MenuItem[] = [];
+  const otherCats: Record<string, MenuItem[]> = {};
+
+  Object.entries(byCat).forEach(([cat, list]) => {
+    if (isSwappableMenuCategory(cat)) swappableItems.push(...list);
+    else otherCats[cat] = list;
+  });
+
+  if (poolLimit > 0 && swappableItems.length > 0) {
+    buildSwappablePoolUnits(swappableItems)
+      .slice(0, poolLimit)
+      .forEach((unit) => unit.ids.forEach((id) => included.add(id)));
+  }
+
+  Object.entries(otherCats).forEach(([cat, list]) => {
+    const limit = limits[cat as MenuCategory] ?? 0;
+    const sorted = [...list].sort((a, b) => getItemExtraPrice(a) - getItemExtraPrice(b));
+    sorted.slice(0, limit).forEach((m) => included.add(m.id));
+  });
+
+  return included;
+}
+
+export function calcExtraDishesPerPlate(
+  menuItemIds: string[],
+  limits: Partial<Record<MenuCategory, number>>,
+): { extraCount: number; extrasPerPlate: number } {
+  const includedIds = getIncludedMenuItemIds(menuItemIds, limits);
+  const extras = menuItemIds
+    .map((id) => MENU_ITEMS.find((i) => i.id === id))
+    .filter((m): m is MenuItem => !!m && !includedIds.has(m.id));
+
+  let extrasPerPlate = 0;
+  let extraCount = 0;
+
+  extras
+    .filter((m) => m.category !== LIVE_COUNTER_CATEGORY)
+    .forEach((m) => {
+      extrasPerPlate += getItemExtraPrice(m);
+      extraCount += 1;
+    });
+
+  const bySub: Record<string, MenuItem[]> = {};
+  extras
+    .filter((m) => m.category === LIVE_COUNTER_CATEGORY)
+    .forEach((m) => {
+      const sub = m.subcategory || "";
+      (bySub[sub] ||= []).push(m);
+    });
+  Object.entries(bySub).forEach(([sub, items]) => {
+    extrasPerPlate += calcLiveCounterSubExtra(sub, items);
+    extraCount += items.length;
+  });
+
+  return { extraCount, extrasPerPlate };
+}
+
+export function getMenuSubcategoryErrors(
+  menuItemIds: string[],
+): { subcategory: string; message: string }[] {
+  const errors: { subcategory: string; message: string }[] = [];
+  for (const [sub, rule] of Object.entries(LIVE_COUNTER_RULES)) {
+    if (!rule.minSelection) continue;
+    const selected = menuItemIds.filter((id) => {
+      const m = MENU_ITEMS.find((i) => i.id === id);
+      return m?.category === LIVE_COUNTER_CATEGORY && m.subcategory === sub;
+    });
+    if (selected.length === 0) continue;
+    const available = MENU_ITEMS.filter(
+      (m) => m.category === LIVE_COUNTER_CATEGORY && m.subcategory === sub,
+    ).length;
+    const required = Math.min(rule.minSelection, available);
+    if (selected.length < required) {
+      errors.push({
+        subcategory: sub,
+        message: `Select at least ${required} item${required > 1 ? "s" : ""} from ${sub}`,
+      });
+    }
+  }
+  return errors;
+}
+
+// `price` on each item = premium on top of category rate (e.g. mocktails +₹20, ice cream special +₹25).
 export const MENU_ITEMS: MenuItem[] = [
   // Welcome Drink — Basic
   { id: "wd-b1", name: "Assorted Soft Drinks", category: "Welcome Drink", subcategory: "Basic", price: 0 },
@@ -406,11 +658,32 @@ export const COMMON_PLATE_ITEMS = [
   "Salad", "Papad", "Achar", "Raita", "Chutney", "Mukhwas", "Packaged Drinking Water",
 ];
 
+export function isMenuItemAllowedForPackage(itemId: string, platePackageId: string): boolean {
+  const plate = PLATE_PACKAGES.find((p) => p.id === platePackageId);
+  const item = MENU_ITEMS.find((m) => m.id === itemId);
+  if (!plate || !item) return false;
+  const allowed = plate.allowedItems?.[item.category as MenuCategory];
+  if (!allowed) return true;
+  return allowed.includes(itemId);
+}
+
+export function filterMenuIdsForPackage(menuItemIds: string[], platePackageId: string): string[] {
+  return menuItemIds.filter((id) => isMenuItemAllowedForPackage(id, platePackageId));
+}
+
+export function getMenuItemsForPackage(platePackageId: string, category: string): MenuItem[] {
+  const plate = PLATE_PACKAGES.find((p) => p.id === platePackageId);
+  const items = MENU_ITEMS.filter((m) => m.category === category);
+  const allowed = plate?.allowedItems?.[category as MenuCategory];
+  if (!allowed) return items;
+  return items.filter((m) => allowed.includes(m.id));
+}
+
 export const PLATE_PACKAGES: PlatePackage[] = [
   {
     id: "plate-600",
-    name: "Signature Package",
-    basePrice: 600,
+    name: "Bronze",
+    basePrice: 650,
     limits: {
       "Welcome Drink": 1,
       "Starters": 1,
@@ -420,15 +693,20 @@ export const PLATE_PACKAGES: PlatePackage[] = [
       "Dal": 1,
       "Sweets & Ice Cream": 1,
     },
+    allowedItems: {
+      "Indian Breads": ["br1"],
+      "Sweets & Ice Cream": ["sw1"],
+    },
+    extras: ["Indian Breads: Poori only · Sweets: Gulab Jamun only"],
   },
   {
     id: "plate-750",
-    name: "Platinum Package",
-    basePrice: 750,
+    name: "Silver",
+    basePrice: 800,
     limits: {
       "Welcome Drink": 1,
       "Farsan": 1,
-      "Starters": 2,
+      "Starters": 1,
       "Main Course": 2,
       "Indian Breads": 1,
       "Rice": 1,
@@ -437,9 +715,9 @@ export const PLATE_PACKAGES: PlatePackage[] = [
     },
   },
   {
-    id: "plate-950",
-    name: "Elite Choice Package",
-    basePrice: 950,
+    id: "plate-1150",
+    name: "Gold",
+    basePrice: 1150,
     limits: {
       "Welcome Drink": 2,
       "Salads": 1,
@@ -448,35 +726,17 @@ export const PLATE_PACKAGES: PlatePackage[] = [
       "Main Course": 2,
       "Indian Breads": 2,
       "Raita": 1,
-      "Rice": 1,
-      "Dal": 1,
+      "Rice": 2,
+      "Dal": 2,
       "Sweets & Ice Cream": 2,
-    },
-  },
-  {
-    id: "plate-1150",
-    name: "Royal Choice Package",
-    basePrice: 1150,
-    limits: {
-      "Welcome Drink": 2,
-      "Salads": 1,
-      "Farsan": 2,
-      "Starters": 3,
-      "Main Course": 3,
-      "Indian Breads": 2,
-      "Raita": 1,
-      "Rice": 1,
-      "Dal": 1,
-      "Sweets & Ice Cream": 2,
-      "Live Counters": 1,
     },
   },
   {
     id: "plate-custom",
-    name: "Prestige Custom Package",
+    name: "Platinum",
     basePrice: 0,
     limits: {},
-    extras: ["Build your own menu — every dish is charged per plate"],
+    extras: ["Build your own menu — each dish charged at its category rate"],
   },
 ];
 
